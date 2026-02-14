@@ -1,0 +1,1745 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Robo Adventure - Setor 5 Final Update</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a1a;
+            overflow: hidden;
+        }
+
+        canvas {
+            border: 5px solid #fff;
+            background-color: #5c94fa;
+            image-rendering: pixelated;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        let aguardandoResetInput = false;
+        let mouseWorldX = 0;
+        let mouseWorldY = 0;
+        let exibindoMenuTeleporte = false;
+        let ferramentaEdicaoAtiva = true;
+        let emCutscene = false; // Bloqueia o teclado
+        let cenaArenaOcorreu = false; // Garante que a cena só rode uma vez
+        let intensidadeTremor = 0; // Controla a força da vibração
+        let travaCameraArena = false;
+        const limiteEsquerdoArena = 27685;
+        const limiteDireitoArena = 28900 + 74; // Pillar x + largura do pilar
+        let arenaConcluida = false; // Quando virar true, a câmera volta ao normal    
+
+        // --- NOVAS VARIÁVEIS DO MENU DEBUG ---
+        let indiceSelecaoMenu = 0;
+        let scrollMenu = 0;
+        const alturaItem = 40;
+
+        const menuDebug = {
+            faseSelecionada: 1,
+            pontos: {
+                1: [
+                    { x: 332, y: 580, nome: "Setor 1 - Início" },
+                    { x: 5600, y: 500, nome: "Setor 2 - Desafios" },
+                    { x: 11554, y: 600, nome: "Setor 3 - Plataformas" },
+                    { x: 17900, y: 400, nome: "Setor 4 - Escada Flutuante" },
+                    { x: 20800, y: 400, nome: "Setor 5 - Central" },
+                    { x: 21700, y: 300, nome: "Setor 5 - Pilar Invertido" },
+                    { x: 22100, y: 400, nome: "Setor 5 - Plataformas" },
+                    { x: 23932, y: 400, nome: "Setor 5 - Desafio Final" },
+                    { x: 25855, y: 500, nome: "Setor 6 - Escada de Cubos" },
+                    { x: 27490, y: 500, nome: "Setor 6 - entrada da arena1" },
+                ],
+                2: [{ x: 100, y: 500, nome: "Início do Level 2" }]
+            }
+        };
+
+        let godMode = false; // Começa desativado
+        let controlesBloqueados = false;
+        let scrollX = 0;
+        let movendoDireita = false;
+        let movendoEsquerda = false;
+        let vida = 3;
+        let gameOver = false;
+        let ultimoCheckpoint = { x: 332, y: 580 };
+        let tempoDano = 0;
+        const duracaoInvulnerabilidade = 1500;
+
+        const velMaxBase = 5;
+        const velMaxBoost = 9;
+        const aceleracao = 0.4;
+        const friccao = 0.2;
+        const pontoMortoX = canvas.width * 0.3;
+        const suavidadeCamera = 0.08;
+
+        let ultimaTeclaSolta = "";
+        let tempoUltimaSoltura = 0;
+        const intervaloDoubleTap = 150;
+
+        const pathBG = "levels/level1_spt/backgrounds_lv1/";
+        const pathSetor2 = "levels/level1_spt/plt_2/";
+        const pathUsoGeral = "levels/usogeral/";
+
+        // --- SISTEMA DE PINCEL PARA EDIÇÃO ---
+        let pincelAtual = 0;
+        const catalogoEdicao = [
+            { nome: "Plataforma Flutuante", tipo: "flutuante", sprite: "imgPltFlutuante", w: 250, h: 30 },
+            { nome: "Pilar de Metal", tipo: "obstaculo", sprite: "imgPilar2", w: 74, h: 180 },
+            { nome: "Espinhos S2", tipo: "dano", sprite: "imgEspinhos2", w: 350, h: 40 },
+            { nome: "Cubo Metal", tipo: "obstaculo", sprite: "imgCubo", w: 56, h: 56 },
+            { nome: "Pilar Invertido", tipo: "obstaculo", sprite: "imgPilarInvertido", w: 74, h: 180 },
+            { nome: "Plataforma Inv", tipo: "plataforma", sprite: "imgPlataformaS2Inv", w: 1000, h: 140 }, // NOVO ITEM
+        ];
+
+        // --- CARREGAMENTO DE SPRITES ---
+        const imgsAste = [];
+        for (let i = 1; i <= 4; i++) {
+            const img = new Image(); img.src = `${pathUsoGeral}aste${i}.png`; imgsAste.push(img);
+        }
+        const imgsAsteDireita = [];
+        for (let i = 1; i <= 4; i++) {
+            const img = new Image(); img.src = `${pathUsoGeral}astd${i}.png`; imgsAsteDireita.push(img);
+        }
+        const imgsAsteEsquerda = [];
+        for (let i = 1; i <= 4; i++) {
+            const img = new Image(); img.src = `${pathUsoGeral}ste${i}.png`; imgsAsteEsquerda.push(img);
+        }
+
+        const imgPilarInvertido = new Image(); imgPilarInvertido.src = pathUsoGeral + "pilar2invertido.png";
+        const imgPltFlutuante = new Image(); imgPltFlutuante.src = pathUsoGeral + "plt2.png";
+        const imgCidadeDistante = new Image(); imgCidadeDistante.src = pathBG + "cit1.png";
+        const imgRochas = new Image(); imgRochas.src = pathBG + "elent_prl1.png";
+        const imgPlataformaS1 = new Image(); imgPlataformaS1.src = "levels/level1_spt/plt_1/pltsp_1.png";
+        const imgPlataformaS2 = new Image(); imgPlataformaS2.src = pathSetor2 + "pltsp_2.png";
+        const imgPlataformaS2Inv = new Image(); imgPlataformaS2Inv.src = pathSetor2 + "pltsp_2inv.png"; // Novo sprite
+        const imgCubo = new Image(); imgCubo.src = pathSetor2 + "cubo1.png";
+        const imgCuboV2 = new Image(); imgCuboV2.src = pathUsoGeral + "cubov2.png";
+        const imgLifeTxt = new Image(); imgLifeTxt.src = pathUsoGeral + "life_txt.png";
+        const imgHeart = new Image(); imgHeart.src = pathUsoGeral + "heart.png";
+        const imgPilar2 = new Image(); imgPilar2.src = pathSetor2 + "pilar2.png";
+        const imgPilarTriplo = new Image(); imgPilarTriplo.src = pathUsoGeral + "pilartriplo.png";
+        const imgEspinhos2 = new Image(); imgEspinhos2.src = pathSetor2 + "espinhos2.png";
+        const imgEspinhos3 = new Image(); imgEspinhos3.src = pathSetor2 + "espinhos3.png";
+        const imgEspinhosBase = new Image(); imgEspinhosBase.src = pathUsoGeral + "espinhos.png";
+        const imgEspinhosInv = new Image(); imgEspinhosInv.src = pathUsoGeral + "espinhos_inv.png";
+
+
+        const imgRoboStand = new Image(); imgRoboStand.src = "sprites_robo/stand_1/stand_rb1.png";
+        const imgJump1 = new Image(); imgJump1.src = "sprites_robo/jump/jump_mv1.png";
+        const imgJump2 = new Image(); imgJump2.src = "sprites_robo/jump/jump_mv2.png";
+
+        const imgsRun = [];
+        const nomesCorrida = ["run_rb__0009_Camada-1.png", "run_rb__0008_Camada-2.png", "run_rb__0007_Camada-3.png", "run_rb__0006_Camada-4.png", "run_rb__0005_Camada-5.png", "run_rb__0004_Camada-6.png", "run_rb__0003_Camada-7.png", "run_rb__0002_Camada-8.png", "run_rb__0001_Camada-9.png", "run_rb__0000_Camada-10.png"];
+        nomesCorrida.forEach(n => { const i = new Image(); i.src = `sprites_robo/run_1/${n}`; imgsRun.push(i); });
+
+        // --- IMAGEM PARA O FADE ---
+            const imgPreta = new Image();
+            imgPreta.src = "levels/usogeral/preto.png"; // Certifique-se de que o nome seja este no seu GitHub  
+
+        // --- CONFIGURAÇÃO DA CAPA ---
+            let gameState = "menu"; // O jogo começa no estado de menu
+            const imgCapa = new Image();
+            imgCapa.src = "levels/usogeral/capa.png"; // Caminho da sua imagem
+
+        let mostrarControles = false; // Começa desligada, ligaremos ao entrar no jogo
+            const imgControles = new Image();
+            imgControles.src = "levels/usogeral/controls.png";    
+
+        //minibear ciborg 
+        const pathBoss = "sprites_inimigos/bearcibv1/";
+        const imgsMiniBear = [];
+        for (let i = 1; i <= 8; i++) {
+            const img = new Image(); img.src = `${pathBoss}bcq${i}.png`; imgsMiniBear.push(img);
+        }
+
+        // --- SPRITES NOVO INIMIGO: NFTWITE ---
+            const pathNft = "sprites_inimigos/nfts/nft_whitev1/";
+
+            const imgsNftWalk = [];
+            for (let i = 1; i <= 6; i++) {
+                const img = new Image(); img.src = `${pathNft}walk/wnft_walk_q${i}.png`; imgsNftWalk.push(img);
+            }
+
+            const imgsNftAtk = [];
+            const nomesAtk = ["Camada-1", "Camada-2", "Camada-3", "Camada-4", "Camada-5", "Camada-6"];
+            nomesAtk.forEach(n => {
+                const img = new Image(); img.src = `${pathNft}walkatack/atkwalk_0000s_000${6 - imgsNftAtk.length - 1}_${n}.png`; imgsNftAtk.push(img);
+            }); // Nota: Ajustei o mapeamento para bater com seus nomes de 0005 a 0000
+
+            const imgsNftDeath = [];
+            const nomesDeath = ["Camada-1", "Camada-2", "Camada-3", "Camada-4", "Camada-5", "Camada-6", "Camada-7"];
+            nomesDeath.forEach(n => {
+                const img = new Image(); img.src = `${pathNft}death/wnftdt_000${6 - imgsNftDeath.length}_${n}.png`; imgsNftDeath.push(img);
+            });
+
+            // --- SPRITES IDLENFTWITE (VIGIA) ---
+                const imgsIdleNft = [];
+                const nomesIdle = ["widle_0000s_0003_1", "widle_0000s_0002_2", "widle_0000s_0001_3", "widle_0000s_0000_4"];
+                nomesIdle.forEach(n => {
+                    const img = new Image(); img.src = `${pathNft}widle/${n}.png`; imgsIdleNft.push(img);
+                });
+
+                const imgsIdleNftAtk = [];
+                for (let i = 1; i <= 6; i++) {
+                    const img = new Image(); img.src = `${pathNft}widleatack/widleatk_${i}.png`; imgsIdleNftAtk.push(img);
+                }
+
+                // --- NOVOS SPRITES DO FINAL ---
+                    const imgJaula1 = new Image(); imgJaula1.src = "sprites_robo/jaula/jlfechada1.png";
+                    const imgJaula2 = new Image(); imgJaula2.src = "sprites_robo/jaula/jlfechada2.png";
+                    const imgFinalCreditos = new Image(); imgFinalCreditos.src = "levels/usogeral/final2.png";
+
+                    // Controle da Cutscene Final
+                    let jaulaAtual = imgJaula1;
+                    let cutsceneFinalAtiva = false;
+                    let cutsceneFinalStep = 0; // 0:espera 1s, 1:anda, 2:pula, 3:fade, 4:tela final
+                    let fadePretoAlpha = 0;
+                    let finalFadeAlpha = 0;
+                    let timerFinal = 0;
+
+        // --- ENTIDADES DE PERIGO ---
+        const entidadesPerigo = [
+            { x: 13916, y: 515, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletrico" },
+            { x: 16400, y: 615, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletrico" },
+            { x: 20500, y: 514, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletrico" },
+            { x: 21762, y: 150, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletricoDireito" },
+            { x: 21762, y: 220, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletricoDireito" },
+            { x: 22155, y: 400, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletricoEsquerdo" },
+            { x: 22155, y: 580, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletricoEsquerdo" },
+            { x: 22479, y: 98, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletricoEsquerdo" },
+            { x: 21762, y: 220, w: 45, h: 45, frame: 0, timer: 0, tipo: "eletricoDireito" },
+        ];
+
+        // --- MAPEAMENTO DO CENÁRIO ---
+        const mapa = [
+            // SETOR 1 - ÁREA INICIAL (Pisos de Metal)
+            { x: 0, y: 680, w: 1550, h: 40, setor: 1, tipo: "chao" },
+            { x: 1800, y: 680, w: 1250, h: 40, setor: 1, tipo: "chao" },
+            { x: 3300, y: 680, w: 2050, h: 40, setor: 1, tipo: "chao" },
+
+            // SETOR 2 - ZONA DE DESAFIOS (Pisos de Concreto/Setor 2)
+            { x: 5550, y: 580, w: 5300, h: 140, setor: 2, tipo: "chao" },
+            { x: 10797, y: 524, w: 56, h: 56, setor: 2, tipo: "obstaculo", sprite: imgCubo },
+            { x: 10850, y: 680, w: 350, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 11185, y: 540, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+
+            // SETOR 3 - TRANSIÇÃO E PLATAFORMAS
+            { x: 11248, y: 680, w: 2000, h: 40, tipo: "chao", setor: 1 },
+            { x: 13254, y: 680, w: 350, h: 40, tipo: "dano", sprite: imgEspinhos3 },
+            { x: 13463, y: 580, w: 1000, h: 140, tipo: "chao", sprite: imgPlataformaS2 },
+            { x: 14463, y: 680, w: 150, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 14613, y: 580, w: 650, h: 140, tipo: "chao", setor: 2, sprite: imgPlataformaS2 },
+            { x: 15263, y: 680, w: 400, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+
+            // SETOR 4 - ESCADA FLUTUANTE E PILARES
+            { x: 15663, y: 540, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+            { x: 15413, y: 540, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 15787, y: 540, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 16107, y: 540, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 16407, y: 680, w: 400, h: 40, tipo: "chao", setor: 1, sprite: imgPlataformaS1 },
+            { x: 16807, y: 680, w: 743, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+
+            // ESCADA ASCENDENTE (COMPLEXO DE PILARES)
+            { x: 16973, y: 540, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 16885, y: 550, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 17079, y: 494, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 17173, y: 540, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 17173, y: 360, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 17085, y: 420, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 17373, y: 590, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 17373, y: 410, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 17373, y: 230, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 17285, y: 290, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+
+            // SETOR 5 - ESTRUTURA CENTRAL (ESTAÇÃO)
+            { x: 17650, y: 580, w: 800, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 17650, y: 440, w: 600, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 17650, y: 300, w: 400, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 17650, y: 244, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // DESAFIO FINAL (CAMINHO DE ESPINHOS E SALTOS)
+            { x: 18450, y: 680, w: 1200, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 18870, y: 480, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 19250, y: 320, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 19650, y: 450, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 20050, y: 320, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 20500, y: 580, w: 1000, h: 140, tipo: "chao", setor: 2, sprite: imgPlataformaS2 },
+            { x: 21444, y: 524, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // ÁREA DO PILAR INVERTIDO (TETO)
+            { x: 21700, y: 0, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilarInvertido },
+            { x: 21700, y: 180, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilarInvertido },
+            { x: 21708, y: 360, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+
+            // FINAL DO MAPAc
+            { x: 21600, y: 680, w: 600, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 21623, y: 630, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 22000, y: 489, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 22265, y: 489, w: 150, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 22211, y: 550, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+            { x: 22211, y: 200, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+            { x: 22211, y: 370, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+
+
+            { x: 22120, y: 207, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+
+            { x: 22465, y: 655, w: 125, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 22577, y: 550, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+            { x: 22577, y: 370, w: 74, h: 180, tipo: "decoracao", sprite: imgPilar2 },
+
+            { x: 22643, y: 680, w: 200, h: 40, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 22534, y: 0, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilarInvertido },
+
+            { x: 23906, y: 100, w: 770, h: 140, tipo: "plataforma", sprite: imgPlataformaS2Inv },
+            { x: 22857, y: 0, w: 2450, h: 140, tipo: "plataforma", sprite: imgPlataformaS2Inv },
+            { x: 24005, y: 240, w: 590, h: 20, tipo: "dano", sprite: imgEspinhosInv },
+            { x: 22857, y: 580, w: 1200, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 22857, y: 440, w: 1000, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 22857, y: 300, w: 800, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 24208, y: 448, w: 180, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+            { x: 24060, y: 680, w: 60, h: 50, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 24425, y: 680, w: 60, h: 50, tipo: "dano", sprite: imgEspinhos2 },
+            { x: 24490, y: 581, w: 56, h: 210, tipo: "obstaculo", sprite: imgCuboV2 },
+            { x: 24545, y: 580, w: 1200, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 24754, y: 310, w: 985, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 24754, y: 140, w: 440, h: 30, tipo: "dano", sprite: imgEspinhosInv },
+            { x: 24650, y: 440, w: 1090, h: 140, tipo: "plataforma", setor: 2, sprite: imgPlataformaS2 },
+            { x: 24758, y: 550, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+            { x: 24758, y: 370, w: 74, h: 180, tipo: "obstaculo", sprite: imgPilar2 },
+            { x: 24766, y: 314, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // --- SETOR 6: ASCENSÃO FINAL ---
+            // --- SETOR 6: ESCADA DE CUBOS (DESCIDA - BLOCOS INDIVIDUAIS) ---
+            // Coluna 1 (Topo - Conecta com a plataforma do Setor 5)
+            // --- SETOR 6: ESCADA DE CUBOS CORRIGIDA ---
+            { x: 25740 + (56 * 2), y: 384, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25740 + (56 * 2), y: 440, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25740 + (56 * 2), y: 496, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25740 + (56 * 2), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25740 + (56 * 2), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo }, // Corrigido aqui
+            { x: 25740 + (56 * 2), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            { x: 25796 + (56 * 2), y: 384, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25796 + (56 * 2), y: 440, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25796 + (56 * 2), y: 496, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25796 + (56 * 2), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25796 + (56 * 2), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo }, // Corrigido aqui
+            { x: 25796 + (56 * 2), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+
+            // Coluna 2
+            { x: 25852 + (56 * 4), y: 440, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25852 + (56 * 4), y: 496, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25852 + (56 * 4), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25852 + (56 * 4), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25852 + (56 * 4), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25908 + (56 * 4), y: 440, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25908 + (56 * 4), y: 496, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25908 + (56 * 4), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25908 + (56 * 4), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25908 + (56 * 4), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // Coluna 3
+            { x: 25964 + (56 * 6), y: 496, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25964 + (56 * 6), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25964 + (56 * 6), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 25964 + (56 * 6), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26020 + (56 * 6), y: 496, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26020 + (56 * 6), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26020 + (56 * 6), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26020 + (56 * 6), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+
+            // Coluna 4
+            { x: 26076 + (56 * 8), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26076 + (56 * 8), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26076 + (56 * 8), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            { x: 26132 + (56 * 8), y: 552, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26132 + (56 * 8), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26132 + (56 * 8), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // Coluna 5
+            { x: 26188 + (56 * 10), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26188 + (56 * 10), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            { x: 26188 + 56 + (56 * 10), y: 608, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26188 + 56 + (56 * 10), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // Coluna 6 (Base)
+            { x: 26188 + 112 + (56 * 12), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+            { x: 26188 + 168 + (56 * 12), y: 664, w: 56, h: 56, tipo: "obstaculo", sprite: imgCubo },
+
+            // caminho para arena
+            { x: 27084, y: 680, w: 600, h: 40, setor: 1, tipo: "chao" },
+
+            // pilares  tranca animados
+            { x: 27084 + 601, y: 680, w: 74, h: 540, tipo: "obstaculo", sprite: imgPilarTriplo },
+
+            // chao arena 
+            { x: 27084 + 676, y: 680, w: 1160, h: 40, setor: 1, tipo: "chao" },
+            { x: 28168, y: 448, w: 250, h: 30, tipo: "flutuante", sprite: imgPltFlutuante },
+
+            // pilares final arena tranca animados
+            { x: 28900, y: 190, w: 74, h: 540, tipo: "obstaculo", sprite: imgPilarTriplo },
+
+        ];
+
+        const robo = {
+            worldX: 332, currentX: 332, y: 100, largura: 50, altura: 100,
+            velX: 0, velY: 0, gravidadeSubida: 0.35, gravidadeQueda: 0.55,
+            forcaPuloBase: -11, estaNoChao: false, tempoNoAr: 0,
+            estado: "parado", direcao: 1, frameAtual: 0, contadorDeTempo: 0, atrasoAnimacao: 10,
+            boostAtivo: false, rastros: []
+        };
+
+        const miniBear = {
+            x: 28740, y: 566, w: 78, h: 120,
+            velX: velMaxBase * 0.55,
+            vida: 2, morto: false,
+            direcao: -1, frame: 0, timerAnim: 0,
+            emDash: false, cooldownDano: 0,
+            timerMorte: 0,
+            timerRastro: 0,
+            rastros: [],
+            // --- CONTROLE DE ONDAS ---
+            ondaAtual: 1,
+            totalOndas: 3,
+        };
+        function renascerMinibear() {
+            miniBear.ondaAtual++;
+            miniBear.x = 28740;
+            miniBear.y = 566;
+            miniBear.vida = 2;
+            miniBear.timerMorte = 0; // Garante que o timer zere para o novo boss
+            miniBear.morto = false;
+            miniBear.cooldownDano = 0;
+            miniBear.rastros = [];
+
+            // Cada onda fica 10% mais rápida que a anterior
+            miniBear.velX = (velMaxBase * (0.4 + (miniBear.ondaAtual * 0.1))) * -1;
+        }
+
+        // --- LISTENERS DE MOUSE ---
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseWorldX = Math.floor((e.clientX - rect.left) + scrollX);
+            mouseWorldY = Math.floor(e.clientY - rect.top);
+        });
+
+        canvas.addEventListener("mousedown", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX_Canvas = e.clientX - rect.left;
+            const mouseY_Canvas = e.clientY - rect.top;
+
+            // 1. Prioridade Máxima: Menu de Teleporte (F8)
+            if (exibindoMenuTeleporte) {
+                if (e.button === 0) { // Só botão esquerdo no menu
+                    const menuW = 500; const menuH = 300;
+                    const x = canvas.width / 2 - menuW / 2;
+                    const y = canvas.height / 2 - menuH / 2;
+                    const areaY = y + 70;
+                    const setores = menuDebug.pontos[menuDebug.faseSelecionada];
+
+                    setores.forEach((s, i) => {
+                        const itemY = areaY + (i * alturaItem) - scrollMenu;
+                        if (mouseX_Canvas > x && mouseX_Canvas < x + menuW &&
+                            mouseY_Canvas > itemY && mouseY_Canvas < itemY + alturaItem &&
+                            mouseY_Canvas > areaY && mouseY_Canvas < y + menuH - 10) {
+                            executarTeleporte(s);
+                        }
+                    });
+                }
+                return; // Bloqueia outras ações se o menu estiver aberto
+            }
+
+            // 2. Prioridade Secundária: Ferramentas de Edição (F7)
+            if (ferramentaEdicaoAtiva) {
+                const mx_Mundo = Math.floor(mouseX_Canvas + scrollX);
+                const my_Mundo = Math.floor(mouseY_Canvas);
+
+                // Botão Esquerdo: Gerar Código com o Pincel Selecionado
+                if (e.button === 0) {
+                    const obj = catalogoEdicao[pincelAtual];
+                    console.log(`%c[MAPA] Item Gerado: ${obj.nome}`, "color: #00ff00; font-weight: bold;");
+                    // Gera a linha pronta para copiar e colar
+                    console.log(`{ x: ${mx_Mundo}, y: ${my_Mundo}, w: ${obj.w}, h: ${obj.h}, tipo: "${obj.tipo}", sprite: ${obj.sprite} },`);
+                }
+                // Botão Direito: Teleporte de Teste
+                else if (e.button === 2) {
+                    e.preventDefault();
+                    robo.worldX = mx_Mundo;
+                    robo.y = my_Mundo - 100;
+                    robo.velX = 0; robo.velY = 0;
+                }
+            }
+        });
+
+        // Bloqueia o menu do botão direito apenas quando necessário
+        window.oncontextmenu = (e) => {
+            if (ferramentaEdicaoAtiva || exibindoMenuTeleporte) return false;
+        };
+
+        canvas.addEventListener("wheel", (e) => {
+            if (!exibindoMenuTeleporte) return;
+            e.preventDefault();
+            scrollMenu += e.deltaY > 0 ? 30 : -30;
+            const setores = menuDebug.pontos[menuDebug.faseSelecionada];
+            const limiteMax = Math.max(0, (setores.length * alturaItem) - 220);
+            scrollMenu = Math.max(0, Math.min(scrollMenu, limiteMax));
+        }, { passive: false });
+
+        function verificarIntersecao(r1, r2) { return r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y; }
+
+        function executarTeleporte(destino) {
+            robo.worldX = destino.x; robo.y = destino.y;
+            robo.velX = 0; robo.velY = 0;
+            ultimoCheckpoint = { x: destino.x, y: destino.y };
+            let alvoScroll = robo.worldX - pontoMortoX;
+            scrollX = alvoScroll < 0 ? 0 : alvoScroll;
+            exibindoMenuTeleporte = false;
+        }
+
+        window.addEventListener("keydown", (e) => {
+                // 1. Se estiver na capa (Menu), Espaço inicia o jogo e LIGA os controles
+                if (gameState === "menu") {
+                    if (e.code === "Space") {
+                        gameState = "jogando";
+                        mostrarControles = true; // Ativa a imagem de controles agora
+                    }
+                    return;
+                }
+
+                // 2. Se os controles estiverem na tela, qualquer tecla os remove
+                if (mostrarControles) {
+                    mostrarControles = false;
+                    return;
+                }
+            if (emCutscene) return;
+            if (e.key === "F7") { e.preventDefault(); ferramentaEdicaoAtiva = !ferramentaEdicaoAtiva; return; }
+            if (e.key === "F8") {
+                e.preventDefault();
+                exibindoMenuTeleporte = !exibindoMenuTeleporte;
+                if (exibindoMenuTeleporte) { indiceSelecaoMenu = 0; scrollMenu = 0; }
+                return;
+            }
+
+            if (exibindoMenuTeleporte) {
+                const tecla = e.key.toLowerCase();
+                const lista = menuDebug.pontos[menuDebug.faseSelecionada];
+
+                // A / D ou Setas: Muda Level
+                if (tecla === "d" || e.key === "ArrowRight") { menuDebug.faseSelecionada = 2; indiceSelecaoMenu = 0; scrollMenu = 0; }
+                if (tecla === "a" || e.key === "ArrowLeft") { menuDebug.faseSelecionada = 1; indiceSelecaoMenu = 0; scrollMenu = 0; }
+
+                // W / S ou Setas: Navega
+                if (tecla === "w" || e.key === "ArrowUp") {
+                    indiceSelecaoMenu = Math.max(0, indiceSelecaoMenu - 1);
+                    if (indiceSelecaoMenu * alturaItem < scrollMenu) scrollMenu -= alturaItem;
+                }
+                if (tecla === "s" || e.key === "ArrowDown") {
+                    indiceSelecaoMenu = Math.min(lista.length - 1, indiceSelecaoMenu + 1);
+                    if ((indiceSelecaoMenu + 1) * alturaItem > scrollMenu + 220) scrollMenu += alturaItem;
+                }
+
+                // Enter / Espaço: Confirma
+                if (e.key === "Enter" || e.key === " ") {
+                    if (lista[indiceSelecaoMenu]) executarTeleporte(lista[indiceSelecaoMenu]);
+                }
+                return;
+            }
+
+            if (gameOver || controlesBloqueados || aguardandoResetInput) return;
+
+            const tecla = e.key.toLowerCase();
+            const agora = Date.now();
+            // --- O PORTÃO DE ENTRADA ---
+            if (gameState === "menu") {
+                desenharCapa(); // Chama a função que desenha a imagem
+                requestAnimationFrame(loop); // Mantém o motor rodando
+                return; // IMPORTANTE: Impede que o robô caia ou inimigos se movam
+            }
+            if (tecla === "d" || tecla === "a") {
+                if (tecla === ultimaTeclaSolta && (agora - tempoUltimaSoltura) < intervaloDoubleTap) { robo.boostAtivo = true; robo.atrasoAnimacao = 5; }
+                if (tecla === "d") { movendoDireita = true; robo.direcao = 1; }
+                if (tecla === "a") { movendoEsquerda = true; robo.direcao = -1; }
+                ultimaTeclaSolta = "";
+            }
+            if (e.code === "Space" && (robo.estaNoChao || robo.tempoNoAr < 6)) {
+                robo.velY = robo.forcaPuloBase * (robo.boostAtivo ? 1.2 : 1.0);
+                robo.estaNoChao = false; robo.tempoNoAr = 10;
+            }
+            // Seleção de Pincel (Teclas 1 a 5) no modo Edição
+            if (ferramentaEdicaoAtiva && !isNaN(e.key) && e.key > 0 && e.key <= catalogoEdicao.length) {
+                pincelAtual = parseInt(e.key) - 1;
+                console.log(`Pincel alterado para: ${catalogoEdicao[pincelAtual].nome}`);
+            }
+
+            if (e.key.toLowerCase() === "g") {
+                godMode = !godMode;
+                console.log("%c[DEBUG] God Mode: " + (godMode ? "ATIVADO" : "DESATIVADO"),
+                    "color: " + (godMode ? "#00ff00" : "#ff0000") + "; font-weight: bold;");
+                return;
+            }
+            // --- COMANDO DE DEBUG: SIMULAR VITÓRIA NA ARENA ---
+            if (e.key.toLowerCase() === "v" && cenaArenaOcorreu) {
+                arenaConcluida = true;
+                console.log("%c[ARENA] Vitória! Câmera liberada.", "color: #00ffff; font-weight: bold;");
+            }
+
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (emCutscene) return;
+            const t = e.key.toLowerCase();
+            if (t === "d") movendoDireita = false;
+            if (t === "a") movendoEsquerda = false;
+            if (t === "d" || t === "a") {
+                aguardandoResetInput = false;
+                ultimaTeclaSolta = t;
+                tempoUltimaSoltura = Date.now();
+            }
+            if (!movendoDireita && !movendoEsquerda) { robo.boostAtivo = false; robo.atrasoAnimacao = 10; }
+        });
+
+        function aplicarDano() {
+            if (godMode) return; // Se estiver no modo deus, a função para aqui e nada acontece
+
+            const agora = Date.now();
+            if (agora > tempoDano + duracaoInvulnerabilidade) {
+                vida--;
+                tempoDano = agora;
+                if (vida <= 0) { vida = 0; gameOver = true; }
+            }
+        }
+
+        class InimigoMinibear {
+            constructor(x, y, limiteEsq, limiteDir, velMult = 0.25) {
+                this.x = x;
+                this.y = y;
+                this.w = 78;
+                this.h = 120;
+                this.limiteEsq = limiteEsq;
+                this.limiteDir = limiteDir;
+                this.velBase = velMaxBase * velMult;
+                this.velX = this.velBase;
+                this.vida = 2;
+                this.morto = false;
+                this.direcao = 1;
+                this.frame = 0;
+                this.timerAnim = 0;
+                this.emDash = false;
+                this.cooldownDano = 0;
+                this.timerMorte = 0;
+                this.timerRastro = 0;
+                this.rastros = [];
+            }
+
+            atualizar(robo) {
+                if (this.morto) return;
+
+                // --- LÓGICA DE MORTE ---
+                if (this.timerMorte > 0) {
+                    this.timerMorte--;
+                    if (this.timerMorte <= 0) this.morto = true; // Desaparece para sempre
+                    return; // Bloqueia movimento e colisão se estiver morrendo
+                }
+
+                // --- MOVIMENTO E IA ---
+                let dist = Math.abs(this.x - robo.worldX);
+                let olhando = (this.direcao === 1 && robo.worldX > this.x) || (this.direcao === -1 && robo.worldX < this.x);
+
+                if (dist < 180 && !this.emDash && olhando) {
+                    this.emDash = true;
+                    this.velX = (velMaxBoost * 0.8) * this.direcao;
+                } else if (dist > 250) {
+                    this.emDash = false;
+                    this.velX = this.velBase * this.direcao;
+                }
+
+                this.x += this.velX;
+
+                // Patrulha dentro dos limites informados
+                if (this.x < this.limiteEsq) { this.direcao = 1; this.velX = Math.abs(this.velX); }
+                if (this.x + this.w > this.limiteDir) { this.direcao = -1; this.velX = -Math.abs(this.velX); }
+
+                // --- COLISÃO EXATA DO BOSS ---
+                this.checarColisao(robo);
+
+                // --- ANIMAÇÃO E RASTRO ---
+                this.timerAnim++;
+                let framesEspera = this.emDash ? 6 : 12;
+                if (this.timerAnim > framesEspera) {
+                    this.frame = (this.frame + 1) % imgsMiniBear.length;
+                    this.timerAnim = 0;
+                }
+
+                if (this.emDash) {
+                    this.timerRastro++;
+                    if (this.timerRastro % 3 === 0) {
+                        this.rastros.unshift({ x: this.x, y: this.y, frame: this.frame, dir: this.direcao });
+                        if (this.rastros.length > 6) this.rastros.pop();
+                    }
+                } else if (this.rastros.length > 0) this.rastros.pop();
+
+                if (this.cooldownDano > 0) this.cooldownDano--;
+            }
+            
+
+            checarColisao(robo) {
+                const hbM = { x: this.x, y: this.y, w: this.w, h: this.h };
+                const hbR = { x: robo.worldX - 15, y: robo.y, w: 30, h: 95 };
+
+                if (verificarIntersecao(hbR, hbM)) {
+                    let pesRobo = robo.y + 95;
+                    let topoM = this.y + 20;
+
+                    // Lógica de Dano no Inimigo (Pisada)
+                    if (pesRobo < topoM + 30 && robo.velY > 0.5 && !robo.estaNoChao) {
+                        if (this.cooldownDano <= 0) {
+                            this.vida--;
+                            this.cooldownDano = 50;
+                            robo.velY = -12; // Pulo de resposta
+                            intensidadeTremor = 5;
+                            setTimeout(() => intensidadeTremor = 0, 150);
+                            if (this.vida <= 0) this.timerMorte = 60; // Gatilho de morte branca
+                        }
+                    }
+                    // Lógica de Dano no Robô (Toque lateral/parado)
+                    else if (!godMode && !controlesBloqueados && this.cooldownDano <= 0) {
+                        aplicarDano();
+                        let dirRepulso = (robo.worldX < this.x + this.w / 2) ? -1 : 1;
+                        controlesBloqueados = true;
+                        robo.boostAtivo = false;
+                        robo.velX = dirRepulso * 10;
+                        robo.velY = -6;
+                        setTimeout(() => { if (!gameOver) controlesBloqueados = false; }, 300);
+                    }
+                }
+            }
+            desenhar() {
+                if (this.morto) return;
+
+                // 1. DESENHAR RASTROS (FANTASMAS) - Apenas se estiver em Dash
+                if (this.emDash && this.timerMorte === 0) {
+                    this.rastros.forEach((r, i) => {
+                        let imgR = imgsMiniBear[r.frame];
+
+                        // Proteção contra imagens não carregadas (Anti-Tela Azul)
+                        if (imgR && imgR.complete && imgR.naturalWidth !== 0) {
+                            ctx.save();
+                            // Opacidade diminui conforme o rastro envelhece
+                            ctx.globalAlpha = (1 - i / this.rastros.length) * 0.3;
+                            // Efeito visual de "vulto"
+                            ctx.filter = "brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(5)";
+                            ctx.translate(r.x, r.y);
+
+                            if (r.dir === -1) {
+                                ctx.scale(-1, 1);
+                                ctx.drawImage(imgR, -this.w, 0, this.w, this.h);
+                            } else {
+                                ctx.drawImage(imgR, 0, 0, this.w, this.h);
+                            }
+                            ctx.restore();
+                        }
+                    });
+                }
+
+                // 2. DESENHO DO CORPO PRINCIPAL DO MINIBEAR COMUM
+                let img = imgsMiniBear[this.frame];
+                if (img && img.complete && img.naturalWidth !== 0) {
+                    ctx.save();
+
+                    // Efeito de flash ao tomar dano ou morrer
+                    if (this.timerMorte > 0 || this.cooldownDano > 0) {
+                        ctx.filter = "brightness(5)";
+                    }
+
+                    ctx.translate(this.x, this.y);
+                    if (this.direcao === -1) {
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(img, -this.w, 0, this.w, this.h);
+                    } else {
+                        ctx.drawImage(img, 0, 0, this.w, this.h);
+                    }
+                    ctx.restore();
+                }
+            }
+        
+        }
+
+        class InimigoNftWite {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.w = 64; // Largura aproximada do sprite
+                    this.h = 80; // Altura aproximada
+                    this.velBase = velMaxBase * 0.4;
+                    this.velX = this.velBase;
+                    this.direcao = 1;
+                    this.estado = "patrulha"; // "patrulha", "ataque", "morte"
+                    this.frame = 0;
+                    this.timerAnim = 0;
+                    this.morto = false;
+                    this.timerMorte = 0;
+                }
+
+                atualizar(robo, mapa) {
+                    if (this.morto) return;
+
+                    if (this.estado === "morte") {
+                        this.timerAnim++;
+                        if (this.timerAnim > 8) {
+                            this.frame++;
+                            this.timerAnim = 0;
+                            if (this.frame >= imgsNftDeath.length) this.morto = true;
+                        }
+                        return;
+                    }
+
+                    // --- MOVIMENTAÇÃO E IA ---
+                    if (this.estado === "patrulha") {
+                        this.x += this.velX;
+
+                        // 1. Detecção de Obstáculos (Paredes)
+                        let colidiuParede = false;
+                        mapa.forEach(p => {
+                            if (p.tipo === "obstaculo" || p.tipo === "chao") {
+                                if (verificarIntersecao({ x: this.x + (this.direcao * 5), y: this.y, w: this.w, h: this.h }, p)) {
+                                    colidiuParede = true;
+                                }
+                            }
+                        });
+
+                        // 2. Detecção de Buracos (Checa se há chão à frente)
+                        let temChaoAFrente = false;
+                        const pontoChecagemX = this.direcao === 1 ? this.x + this.w + 10 : this.x - 10;
+                        const pontoChecagemY = this.y + this.h + 10;
+
+                        mapa.forEach(p => {
+                            if (p.tipo === "chao" || p.tipo === "plataforma") {
+                                if (pontoChecagemX > p.x && pontoChecagemX < p.x + p.w &&
+                                    pontoChecagemY > p.y && pontoChecagemY < p.y + p.h + 50) {
+                                    temChaoAFrente = true;
+                                }
+                            }
+                        });
+
+                        if (colidiuParede || !temChaoAFrente) {
+                            this.direcao *= -1;
+                            this.velX = this.velBase * this.direcao;
+                        }
+                    }
+
+                    // --- LÓGICA DE ANIMAÇÃO ---
+                    this.timerAnim++;
+                    let limiteFrames = this.estado === "ataque" ? 6 : 10;
+                    if (this.timerAnim > limiteFrames) {
+                        this.timerAnim = 0;
+                        if (this.estado === "patrulha") this.frame = (this.frame + 1) % imgsNftWalk.length;
+                        if (this.estado === "ataque") {
+                            this.frame++;
+                            if (this.frame >= imgsNftAtk.length) {
+                                this.estado = "patrulha";
+                                this.frame = 0;
+                            }
+                        }
+                    }
+
+                    // --- COLISÃO COM O ROBÔ ---
+                    this.checarColisaoRobo(robo);
+                }
+
+                checarColisaoRobo(robo) {
+                const hbInimigo = { x: this.x, y: this.y, w: this.w, h: this.h };
+                const hbRobo = { x: robo.worldX - 15, y: robo.y, w: 30, h: 95 };
+
+                if (verificarIntersecao(hbRobo, hbInimigo)) {
+                    let pesRobo = robo.y + 95;
+                    let topoInimigo = this.y + 20;
+
+                    // 1. Robô pisa na cabeça (Morte do inimigo)
+                    if (pesRobo < topoInimigo + 30 && robo.velY > 0 && !robo.estaNoChao) {
+                        if (this.estado !== "morte") {
+                            this.estado = "morte";
+                            this.frame = 0;
+                            this.timerAnim = 0;
+                            robo.velY = -10; // Pulo de resposta
+                        }
+                    }
+                    // 2. Toque lateral (Ataque do Inimigo)
+                    // A trava ocorria aqui: agora ele só reseta o frame se estiver em 'patrulha'
+                    else if (this.estado === "patrulha") {
+                        this.estado = "ataque";
+                        this.frame = 0;
+                        this.timerAnim = 0;
+                        aplicarDano(); // Perde 1 coração
+                    }
+                }
+            }
+
+                desenhar() {
+                    if (this.morto) return;
+
+                    let imgLista = imgsNftWalk;
+                    if (this.estado === "ataque") imgLista = imgsNftAtk;
+                    if (this.estado === "morte") imgLista = imgsNftDeath;
+
+                    let img = imgLista[this.frame];
+                    if (img && img.complete) {
+                        ctx.save();
+                        ctx.translate(this.x, this.y);
+                        if (this.direcao === -1) {
+                            ctx.scale(-1, 1);
+                            ctx.drawImage(img, -this.w, 0, this.w, this.h);
+                        } else {
+                            ctx.drawImage(img, 0, 0, this.w, this.h);
+                        }
+                        ctx.restore();
+                    }
+                }
+            }
+        
+        class InimigoIdleNftWite {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.w = 64;
+                    this.h = 80;
+                    this.direcao = 1;
+                    this.estado = "idle"; // "idle", "ataque", "morte"
+                    this.frame = 0;
+                    this.timerAnim = 0;
+                    this.morto = false;
+                }
+
+                atualizar(robo) {
+                    if (this.morto) return;
+
+                    if (this.estado === "morte") {
+                        this.timerAnim++;
+                        if (this.timerAnim > 8) {
+                            this.frame++;
+                            this.timerAnim = 0;
+                            if (this.frame >= imgsNftDeath.length) this.morto = true;
+                        }
+                        return;
+                    }
+
+                    // --- LÓGICA DE VIGIA ---
+                    let dist = Math.abs(this.x - robo.worldX);
+
+                    // Sempre olha para o robô se estiver a menos de 300px
+                    if (dist < 300 && this.estado !== "ataque") {
+                        this.direcao = (robo.worldX < this.x) ? -1 : 1;
+                    }
+
+                    // --- ANIMAÇÃO ---
+                    this.timerAnim++;
+                    let limiteFrames = this.estado === "ataque" ? 6 : 12;
+                    if (this.timerAnim > limiteFrames) {
+                        this.timerAnim = 0;
+                        if (this.estado === "idle") {
+                            this.frame = (this.frame + 1) % imgsIdleNft.length;
+                        } else if (this.estado === "ataque") {
+                            this.frame++;
+                            if (this.frame >= imgsIdleNftAtk.length) {
+                                this.estado = "idle";
+                                this.frame = 0;
+                            }
+                        }
+                    }
+
+                    this.checarColisaoRobo(robo);
+                }
+
+                checarColisaoRobo(robo) {
+                    const hbInimigo = { x: this.x, y: this.y, w: this.w, h: this.h };
+                    const hbRobo = { x: robo.worldX - 15, y: robo.y, w: 30, h: 95 };
+
+                    if (verificarIntersecao(hbRobo, hbInimigo)) {
+                        let pesRobo = robo.y + 95;
+                        let topoInimigo = this.y + 20;
+
+                        // Pisada (Morte)
+                        if (pesRobo < topoInimigo + 30 && robo.velY > 0 && !robo.estaNoChao) {
+                            this.estado = "morte";
+                            this.frame = 0;
+                            this.timerAnim = 0;
+                            robo.velY = -10;
+                        }
+                        // Toque lateral (Ataque) - Protegido contra trava de animação
+                        else if (this.estado === "idle") {
+                            this.estado = "ataque";
+                            this.frame = 0;
+                            this.timerAnim = 0;
+                            this.direcao = (robo.worldX < this.x) ? -1 : 1; // Encara o robô ao atacar
+                            aplicarDano();
+                        }
+                    }
+                }
+
+                desenhar() {
+                    if (this.morto) return;
+
+                    let imgLista = imgsIdleNft;
+                    if (this.estado === "ataque") imgLista = imgsIdleNftAtk;
+                    if (this.estado === "morte") imgLista = imgsNftDeath;
+
+                    let img = imgLista[this.frame];
+                    if (img && img.complete) {
+                        ctx.save();
+                        ctx.translate(this.x, this.y);
+                        if (this.direcao === -1) {
+                            ctx.scale(-1, 1);
+                            ctx.drawImage(img, -this.w, 0, this.w, this.h);
+                        } else {
+                            ctx.drawImage(img, 0, 0, this.w, this.h);
+                        }
+                        ctx.restore();
+                    }
+                }
+            }    
+
+        // Lista para os novos inimigos
+        let inimigosComuns = [];
+        // Exemplo: Colocando inimigos em diferentes setores
+        inimigosComuns.push(new InimigoMinibear(2000, 560, 1800, 2500)); // Setor 1
+        inimigosComuns.push(new InimigoMinibear(7300, 460, 7000, 7600)); // Setor 2
+
+        // Adicione os NFTWites em pontos estratégicos
+            inimigosComuns.push(new InimigoNftWite(5800, 500)); // Setor 2
+            inimigosComuns.push(new InimigoNftWite(12000, 600)); // Setor 3
+
+        // Exemplo: Vigia guardando uma plataforma no Setor 2
+            inimigosComuns.push(new InimigoIdleNftWite(6500, 500));
+
+            // Exemplo: Vigia perto da escada de cubos no Setor 6
+            inimigosComuns.push(new InimigoIdleNftWite(25500, 360));    
+            
+
+        function loop() {
+                if (gameOver) { exibirGameOver(); return; }
+                const agora = Date.now();
+
+                // --- SENTINELA DO MENU ---
+                if (gameState === "menu") {
+                    desenharCapa(); // Desenha a capa
+                    requestAnimationFrame(loop); // Mantém o loop esperando
+                    return; // PARA AQUI. O computador ignora todo o resto (física/inimigos)
+                }
+            const invencivel = agora < tempoDano + duracaoInvulnerabilidade;
+
+            let vMax = robo.boostAtivo ? velMaxBoost : velMaxBase;
+            if (movendoDireita) robo.velX = Math.min(robo.velX + aceleracao, vMax);
+            else if (movendoEsquerda) robo.velX = Math.max(robo.velX - aceleracao, -vMax);
+            else {
+                if (robo.velX > 0) robo.velX = Math.max(0, robo.velX - friccao);
+                else if (robo.velX < 0) robo.velX = Math.min(0, robo.velX + friccao);
+            }
+            robo.velY += (robo.velY < 0) ? robo.gravidadeSubida : robo.gravidadeQueda;
+
+            const hbLargura = 30; const hbAltura = 95;
+            robo.worldX += robo.velX;
+            if (robo.worldX < scrollX + 25) { robo.worldX = scrollX + 25; robo.velX = 0; }
+
+            mapa.forEach(p => {
+                if (p.tipo === "obstaculo") {
+                    const hbR = { x: robo.worldX - hbLargura / 2, y: robo.y + 5, w: hbLargura, h: hbAltura - 10 };
+                    if (verificarIntersecao(hbR, p)) {
+                        if (robo.velX > 0) robo.worldX = p.x - hbLargura / 2;
+                        else if (robo.velX < 0) robo.worldX = p.x + p.w + hbLargura / 2;
+                        robo.velX = 0;
+                    }
+                }
+            });
+
+            // Adicione em qualquer lugar dentro do loop principal
+           inimigosComuns.forEach(inimigo => inimigo.atualizar(robo, mapa));
+
+            robo.y += robo.velY;
+            let colidiuChao = false;
+
+            // --- LÓGICA DO BOSS: MINIBEAR CIBORG (CORRIGIDA E ESTÁVEL) ---
+            if (cenaArenaOcorreu && !miniBear.morto) {
+
+                // --- 1. LÓGICA DE MORTE E ONDAS (SUBSTITUA A ATUAL) ---
+                if (miniBear.timerMorte > 0) {
+                    miniBear.timerMorte--;
+                    intensidadeTremor = 4;
+
+                    // Quando o timer termina (chega a 0)
+                    if (miniBear.timerMorte <= 0) {
+                        if (miniBear.ondaAtual < miniBear.totalOndas) {
+                            renascerMinibear();
+                            intensidadeTremor = 15; // Explosão visual na troca
+                        } else {
+                            // FIM DA TERCEIRA ONDA: Desaparece de vez
+                            miniBear.morto = true;
+                            miniBear.timerMorte = 0; // Força o zeramento para sumir da tela
+                            arenaConcluida = true;
+                            intensidadeTremor = 0;
+                        }
+                    }
+                }
+                // 2. SÓ EXECUTA MOVIMENTO E DANO SE NÃO ESTIVER MORRENDO
+                else {
+                    let distanciaParaRobo = Math.abs(miniBear.x - robo.worldX);
+
+                    // --- INTELIGÊNCIA DE DASH COM CAMPO DE VISÃO ---
+
+                    // 1. Calcula se o boss está de frente para o jogador
+                    // Usamos o centro do boss (miniBear.x + miniBear.w/2) para maior precisão
+                    let olhandoParaRobo = (miniBear.direcao === 1 && robo.worldX > miniBear.x + miniBear.w / 2) ||
+                        (miniBear.direcao === -1 && robo.worldX < miniBear.x + miniBear.w / 2);
+
+                    // 2. Gatilho do Dash (Agora inclui a condição 'olhandoParaRobo')
+                    if (distanciaParaRobo < 180 && !miniBear.emDash && olhandoParaRobo) {
+                        miniBear.emDash = true;
+                        // Ele fixa a velocidade do dash na direção que estava olhando
+                        miniBear.velX = (velMaxBoost * 1.5) * miniBear.direcao;
+                    }
+                    // 3. Condição para parar o dash (distância ou se ele bater na parede)
+                    else if (distanciaParaRobo > 250 || miniBear.timerMorte > 0) {
+                        miniBear.emDash = false;
+                        miniBear.velX = (velMaxBase * 0.55) * miniBear.direcao;
+                    }
+
+                    miniBear.x += miniBear.velX;
+
+                    // Limites da Arena
+                    if (miniBear.x < limiteEsquerdoArena) { miniBear.direcao = 1; miniBear.velX = Math.abs(miniBear.velX); }
+                    if (miniBear.x + miniBear.w > limiteDireitoArena) { miniBear.direcao = -1; miniBear.velX = -Math.abs(miniBear.velX); }
+
+                    // Colisão (Hitbox)
+                    const hbBoss = { x: miniBear.x, y: miniBear.y, w: miniBear.w, h: miniBear.h };
+                    const hbRobo = { x: robo.worldX - 15, y: robo.y, w: 30, h: 95 };
+
+                    if (verificarIntersecao(hbRobo, hbBoss)) {
+                        let pesDoRobo = robo.y + 95;
+                        let topoBoss = miniBear.y + 20;
+
+                        // PROTEÇÃO: Só causa dano se estiver caindo e não estiver no chão
+                        if (pesDoRobo < topoBoss + 30 && robo.velY > 0.5 && !robo.estaNoChao) {
+                            if (miniBear.cooldownDano <= 0) {
+                                miniBear.vida--;
+                                miniBear.cooldownDano = 50;
+                                robo.velY = -12; // Pulo de resposta
+                                intensidadeTremor = 10;
+                                setTimeout(() => intensidadeTremor = 0, 200);
+                                if (miniBear.vida <= 0) miniBear.timerMorte = 60;
+                            }
+                        }
+                        // COLISÃO LATERAL: Robô parado ou andando toma dano (não o Boss)
+                        else if (!godMode && !controlesBloqueados && miniBear.cooldownDano <= 0) {
+                            aplicarDano();
+                            let direcaoRepulso = (robo.worldX < miniBear.x + miniBear.w / 2) ? -1 : 1;
+                            controlesBloqueados = true;
+                            robo.boostAtivo = false;
+                            robo.velX = direcaoRepulso * 10;
+                            robo.velY = -6;
+                            robo.worldX += direcaoRepulso * 10;
+                            setTimeout(() => { if (!gameOver) controlesBloqueados = false; }, 300);
+                        }
+                    }
+
+                    // Animação e Rastro (Só se estiver vivo e ativo)
+                    miniBear.timerAnim++;
+                    if (miniBear.timerAnim > (miniBear.emDash ? 3 : 6)) {
+                        miniBear.frame = (miniBear.frame + 1) % imgsMiniBear.length;
+                        miniBear.timerAnim = 0;
+                    }
+
+                    if (miniBear.emDash) {
+                        miniBear.timerRastro++;
+                        if (miniBear.timerRastro % 3 === 0) {
+                            miniBear.rastros.unshift({ x: miniBear.x, y: miniBear.y, frame: miniBear.frame, dir: miniBear.direcao });
+                            if (miniBear.rastros.length > 8) miniBear.rastros.pop();
+                        }
+                    } else {
+                        miniBear.timerRastro = 0;
+                        if (miniBear.rastros.length > 0) miniBear.rastros.pop();
+                    }
+                }
+
+                if (miniBear.cooldownDano > 0) miniBear.cooldownDano--;
+
+
+
+                // --- LÓGICA DE RASTRO DO BOSS (COM ESPAÇAMENTO) ---
+                if (miniBear.emDash) {
+                    miniBear.timerRastro++; // Conta os frames do dash
+
+                    // O TRUQUE: Só grava se o contador for divisível por 3 (grava a cada 3 frames)
+                    // Quer mais espaçado? Mude o 3 para 4 ou 5. Quer menos? Mude para 2.
+                    if (miniBear.timerRastro % 3 === 0) {
+                        miniBear.rastros.unshift({ x: miniBear.x, y: miniBear.y, frame: miniBear.frame, dir: miniBear.direcao });
+                        // Mantém apenas os últimos 8 fantasmas
+                        if (miniBear.rastros.length > 8) miniBear.rastros.pop();
+                    }
+                } else {
+                    // Reseta o timer quando o dash acaba
+                    miniBear.timerRastro = 0;
+                    // Se não estiver em dash, remove os rastros gradualmente até sumir
+                    if (miniBear.rastros.length > 0) miniBear.rastros.pop();
+                }
+
+                let framesDeEspera = miniBear.emDash ? 12 : 20;
+
+                if (miniBear.timerAnim > framesDeEspera) {
+                    miniBear.frame = (miniBear.frame + 1) % imgsMiniBear.length;
+                    miniBear.timerAnim = 0;
+                }
+            }
+
+
+            mapa.forEach(p => {
+                const hbR = { x: robo.worldX - hbLargura / 2, y: robo.y, w: hbLargura, h: hbAltura };
+                if (verificarIntersecao(hbR, p)) {
+                    if (p.tipo === "flutuante" || p.tipo === "plataforma") {
+                        if (robo.velY > 0 && (robo.y + hbAltura - robo.velY) <= p.y + 10) {
+                            robo.y = p.y - hbAltura; robo.velY = 0; colidiuChao = true;
+                        }
+                    } else {
+                        if (robo.velY > 0 && robo.y + hbAltura <= p.y + 20) {
+                            robo.y = p.y - hbAltura; robo.velY = 0; colidiuChao = true;
+                            if (p.tipo !== "dano") ultimoCheckpoint = { x: robo.worldX, y: robo.y };
+                        } else if (robo.velY < 0 && robo.y >= p.y + p.h - 20) {
+                            robo.y = p.y + p.h; robo.velY = 0;
+                        }
+                        if (p.tipo === "dano" && !invencivel) aplicarDano();
+                    }
+                }
+            });
+
+            entidadesPerigo.forEach(ent => {
+                ent.timer++;
+                if (ent.timer >= 6) { ent.frame = (ent.frame + 1) % 4; ent.timer = 0; }
+                const hbDano = { x: ent.x, y: ent.y, w: ent.w * 1.5, h: ent.h * 1.5 };
+                const hbRobo = { x: robo.worldX - 15, y: robo.y, w: 30, h: 95 };
+                if (!invencivel && verificarIntersecao(hbRobo, hbDano)) {
+                    aplicarDano();
+                    controlesBloqueados = true; robo.boostAtivo = false;
+                    const dir = robo.worldX < ent.x ? -1 : 1;
+                    robo.velX = dir * 7; robo.velY = -6;
+                    setTimeout(() => { if (!gameOver) controlesBloqueados = false; }, 300);
+                }
+            });
+
+            robo.estaNoChao = colidiuChao;
+            if (robo.estaNoChao) robo.tempoNoAr = 0; else robo.tempoNoAr++;
+
+            // --- LÓGICA DE CÂMERA COM TRAVA DE ARENA ---
+            // --- LÓGICA DE CÂMERA ATUALIZADA ---
+            if (!emCutscene) {
+                let alvoScroll = robo.worldX - pontoMortoX;
+
+                // A trava só funciona se a cena ocorreu E a arena ainda NÃO acabou
+                if (cenaArenaOcorreu && !arenaConcluida) {
+                    let maxScrollPossivel = limiteDireitoArena - canvas.width;
+                    let minScrollPossivel = limiteEsquerdoArena;
+                    alvoScroll = Math.max(minScrollPossivel, Math.min(alvoScroll, maxScrollPossivel));
+                }
+
+                if (alvoScroll < 0) alvoScroll = 0;
+                scrollX += (alvoScroll - scrollX) * suavidadeCamera;
+            }
+
+            // Isso deve vir sempre depois do cálculo do scrollX
+            robo.currentX = robo.worldX - scrollX;
+
+            if (robo.y > canvas.height) {
+                aplicarDano();
+                if (!gameOver) {
+                    aguardandoResetInput = true;
+                    movendoDireita = false; movendoEsquerda = false;
+                    robo.worldX = ultimoCheckpoint.x; robo.y = ultimoCheckpoint.y;
+                    robo.velX = 0; robo.velY = 0; robo.boostAtivo = false;
+                    let alvoR = robo.worldX - pontoMortoX; scrollX = alvoR < 0 ? 0 : alvoR;
+                }
+            }
+
+            if (robo.boostAtivo) {
+                robo.rastros.unshift({ x: robo.currentX, y: robo.y, frame: robo.frameAtual, dir: robo.direcao, estado: robo.estado, vY: robo.velY });
+                if (robo.rastros.length > 12) robo.rastros.pop();
+            } else if (robo.rastros.length > 0) robo.rastros.pop();
+
+            if (robo.estaNoChao) {
+                if (Math.abs(robo.velX) > 0.5) {
+                    robo.estado = "correndo";
+                    if (++robo.contadorDeTempo >= robo.atrasoAnimacao) { robo.contadorDeTempo = 0; robo.frameAtual = (robo.frameAtual + 1) % imgsRun.length; }
+                } else { robo.estado = "parado"; robo.frameAtual = 0; }
+            } else { robo.estado = "pulando"; }
+
+            // --- SISTEMA DE CUTSCENE COM TREMOR ---
+            if (robo.worldX > 28000 && !cenaArenaOcorreu) {
+                emCutscene = true;
+                movendoDireita = false; movendoEsquerda = false; robo.velX = 0;
+
+                const pilarEntrada = mapa.find(p => p.x === 27685);
+
+                if (pilarEntrada && pilarEntrada.y > 190) {
+                    pilarEntrada.y -= 2; // Velocidade lenta e pesada
+                    intensidadeTremor = 4; // Ativa a vibração da tela (ajuste o número para tremer mais)
+
+                    // Câmera foca no pilar
+                    let alvoCameraCena = pilarEntrada.x - 400;
+                    scrollX += (alvoCameraCena - scrollX) * 0.05;
+                }
+                else if (pilarEntrada && pilarEntrada.y <= 190) {
+                    pilarEntrada.y = 190;
+                    intensidadeTremor = 0; // Desliga o tremor quando o pilar para
+                    emCutscene = false;
+                    cenaArenaOcorreu = true;
+                }
+            }
+
+            if (miniBear.morto && miniBear.ondaAtual >= 3 && !cutsceneFinalAtiva) {
+                cutsceneFinalAtiva = true;
+                timerFinal = agora;
+                controlesBloqueados = true;
+            }
+
+            if (cutsceneFinalAtiva) {
+                let agoraCS = Date.now();
+
+                // STEP 0: Troca a jaula
+                if (cutsceneFinalStep === 0 && agoraCS - timerFinal > 1000) {
+                    jaulaAtual = imgJaula2;
+                    cutsceneFinalStep = 1;
+                }
+
+                // STEP 1: Caminha até o X central e pula
+                if (cutsceneFinalStep === 1) {
+                    const centroX = 28293;
+                    if (Math.abs(robo.worldX - centroX) > 10) {
+                        robo.velX = (robo.worldX < centroX) ? 3 : -3;
+                        robo.direcao = (robo.worldX < centroX) ? 1 : -1;
+                        robo.estado = "correndo";
+                    } else {
+                        robo.velX = 0;
+                        robo.velY = -16; // Super Pulo
+                        robo.estaNoChao = false;
+                        robo.estado = "pulando";
+                        timerFinal = agoraCS; // Reinicia o timer para o próximo passo
+                        cutsceneFinalStep = 2;
+                    }
+                }
+
+                // STEP 2: AGUARDA 1.5 SEGUNDOS (Independente de onde o robô esteja)
+                if (cutsceneFinalStep === 2 && agoraCS - timerFinal > 1500) {
+                    cutsceneFinalStep = 3;
+                }
+
+                // STEP 3: A imagem preta começa a aparecer (Fade Out)
+                if (cutsceneFinalStep === 3) {
+                    fadePretoAlpha += 0.01;
+                    if (fadePretoAlpha >= 1) { fadePretoAlpha = 1; cutsceneFinalStep = 4; }
+                }
+
+                // STEP 4: Surge a imagem final (Fade In)
+                if (cutsceneFinalStep === 4) {
+                    finalFadeAlpha += 0.01;
+                    if (finalFadeAlpha >= 1) finalFadeAlpha = 1;
+                }
+            }
+            function desenharCapa() {
+                ctx.setTransform(1, 0, 0, 1, 0, 0); // Garante que a capa não fique "rolando" com o cenário
+                ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpa a tela
+
+                if (imgCapa.complete) {
+                    ctx.drawImage(imgCapa, 0, 0, canvas.width, canvas.height);
+                }
+
+                // Efeito de texto piscando para o jogador saber o que fazer
+                if (Math.floor(Date.now() / 600) % 2 === 0) {
+                    ctx.fillStyle = "white";
+                    ctx.font = "bold 25px monospace";
+                    ctx.textAlign = "center";
+                    ctx.fillText("PRESS SPACE TO START", canvas.width / 2, canvas.height - 80);
+                }
+            }
+            
+
+
+            desenharCena();
+
+            if (mostrarControles) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                if (imgControles.complete) {
+                    // --- AJUSTE AQUI O TAMANHO QUE VOCÊ QUER ---
+                    let larguraDesejada = 600; // Mude este número para aumentar/diminuir
+                    let alturaDesejada = 400;  // Mude este número para aumentar/diminuir
+
+                    // Cálculo automático para centralizar na tela
+                    let posX = (canvas.width / 2) - (larguraDesejada / 2);
+                    let posY = (canvas.height / 2) - (alturaDesejada / 2);
+
+                    ctx.drawImage(imgControles, posX, posY, larguraDesejada, alturaDesejada);
+                }
+                ctx.restore();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        function desenharCena() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // CAMADA 0: Início do Tremor (Afeta tudo)
+            ctx.save();
+            if (intensidadeTremor > 0) {
+                ctx.translate((Math.random() - 0.5) * intensidadeTremor, (Math.random() - 0.5) * intensidadeTremor);
+            }
+
+            // CAMADA 1: Background Parallax
+            if (imgCidadeDistante.complete) {
+                const hC = 460; const lC = hC * (imgCidadeDistante.naturalWidth / imgCidadeDistante.naturalHeight);
+                let descC = (scrollX * 0.2) % lC;
+                ctx.drawImage(imgCidadeDistante, -descC, canvas.height - hC, lC, hC);
+                ctx.drawImage(imgCidadeDistante, -descC + lC, canvas.height - hC, lC, hC);
+            }
+            if (imgRochas.complete) {
+                const hR = canvas.height; const lR = hR * (imgRochas.naturalWidth / imgRochas.naturalHeight);
+                let progresso = (scrollX * 0.5 + canvas.width * 0.7) % (canvas.width + lR);
+                ctx.drawImage(imgRochas, canvas.width - progresso, 0, lR, hR);
+            }
+
+    // CAMADA 2: Mundo (Mapa, Boss, Inimigos e Perigos)
+            ctx.save();
+            ctx.translate(-scrollX, 0);
+            // 1. Desenho do Mapa
+            mapa.forEach(p => {
+                let img = p.sprite || (p.setor === 2 ? imgPlataformaS2 : imgPlataformaS1);
+                if (img && img.complete && img.naturalWidth !== 0) {
+                    if (p.tipo === "chao" || p.tipo === "plataforma" || p.tipo === "dano") {
+                        const lS = p.h * (img.naturalWidth / img.naturalHeight);
+                        for (let xP = 0; xP < p.w; xP += lS) {
+                            ctx.drawImage(img, p.x + xP, p.y, Math.min(lS, p.w - xP), p.h);
+                        }
+                    } else {
+                        ctx.drawImage(img, p.x, p.y, p.w, p.h);
+                    }
+                    // Desenhar Jaula em cima da plataforma flutuante específica
+                    if (jaulaAtual.complete) {
+                        ctx.drawImage(jaulaAtual, 28200, 425 - 120, 200, 150); // Ajustei o Y para ficar em cima dela
+                    }
+                }
+            });
+
+            // 2. Desenhar Inimigos Comuns (NftWite e Minibears de patrulha)
+            inimigosComuns.forEach(inimigo => {
+                inimigo.desenhar();
+            });
+
+            // 3. DESENHAR BOSS DA ARENA (MINIBEAR GLOBAL COM RASTROS)
+            if (cenaArenaOcorreu && (!miniBear.morto || miniBear.timerMorte > 0)) {
+
+                // --- PARTE NOVA: DESENHO DOS RASTROS (FANTASMAS) ---
+                if (miniBear.emDash && miniBear.timerMorte === 0) {
+                    miniBear.rastros.forEach((r, i) => {
+                        let imgR = imgsMiniBear[r.frame];
+                        // PROTEÇÃO ANTI-TELA AZUL: Só desenha se a imagem estiver carregada
+                        if (imgR && imgR.complete && imgR.naturalWidth !== 0) {
+                            ctx.save();
+                            // Opacidade diminui conforme o rastro fica mais antigo
+                            ctx.globalAlpha = (1 - i / miniBear.rastros.length) * 0.4;
+                            // Efeito visual de rastro (opcional: brilho ou cor sólida)
+                            ctx.filter = "brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(5)";
+                            ctx.translate(r.x, r.y);
+
+                            if (r.dir === -1) {
+                                ctx.scale(-1, 1);
+                                ctx.drawImage(imgR, -miniBear.w, 0, miniBear.w, miniBear.h);
+                            } else {
+                                ctx.drawImage(imgR, 0, 0, miniBear.w, miniBear.h);
+                            }
+                            ctx.restore();
+                        }
+                    });
+                }
+
+                // --- DESENHO DO CORPO PRINCIPAL DO BOSS ---
+                let imgB = imgsMiniBear[miniBear.frame];
+                if (imgB && imgB.complete && imgB.naturalWidth !== 0) {
+                    ctx.save();
+                    if (miniBear.timerMorte > 0 || miniBear.cooldownDano > 0) {
+                        ctx.filter = "brightness(5)"; // Efeito de flash ao tomar dano
+                    }
+                    ctx.translate(miniBear.x, miniBear.y);
+                    if (miniBear.direcao === -1) {
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(imgB, -miniBear.w, 0, miniBear.w, miniBear.h);
+                    } else {
+                        ctx.drawImage(imgB, 0, 0, miniBear.w, miniBear.h);
+                    }
+                    ctx.restore();
+                }
+            }
+
+            // 3. DESENHAR ASTES ELÉTRICAS (ENTIDADES DE PERIGO)
+            entidadesPerigo.forEach(ent => {
+                let arrayUso = (ent.tipo === "eletricoDireito") ? imgsAsteDireita :
+                    (ent.tipo === "eletricoEsquerdo") ? imgsAsteEsquerda : imgsAste;
+                let img = arrayUso[ent.frame];
+
+                // Proteção para as astes não ficarem invisíveis
+                if (img && img.complete && img.naturalWidth !== 0) {
+                    ctx.drawImage(img, ent.x, ent.y, ent.w * 1.5, ent.h * 1.5);
+                } else {
+                    // Se a imagem falhar, desenha um brilho ciano para sinalizar perigo
+                    ctx.fillStyle = "rgba(0, 255, 255, 0.3)";
+                    ctx.fillRect(ent.x, ent.y, ent.w, ent.h);
+                }
+            });
+
+            ctx.restore();
+
+            // --- DESENHAR MINIBEAR E SEUS RASTROS ---
+            if (cenaArenaOcorreu && (!miniBear.morto || miniBear.timerMorte > 0)) {
+
+                // 1. Rastros (Fantasmas Vermelhos) - Eles param de aparecer se estiver morrendo
+                if (miniBear.timerMorte === 0) {
+                    miniBear.rastros.forEach((r, i) => {
+                        let imgR = imgsMiniBear[r.frame];
+                        if (imgR && imgR.complete) {
+                            ctx.save();
+                            ctx.globalAlpha = (1 - i / miniBear.rastros.length) * 0.5;
+                            ctx.filter = "brightness(0.5) sepia(1) hue-rotate(-50deg) saturate(10) brightness(1.2)";
+                            ctx.globalCompositeOperation = "screen";
+                            ctx.translate(r.x, r.y);
+                            if (r.dir === -1) {
+                                ctx.scale(-1, 1);
+                                ctx.drawImage(imgR, -miniBear.w, 0, miniBear.w, miniBear.h);
+                            } else {
+                                ctx.drawImage(imgR, 0, 0, miniBear.w, miniBear.h);
+                            }
+                            ctx.restore();
+                        }
+                    });
+                }
+
+                // 2. BOSS PRINCIPAL (COM EFEITOS DE HIT E MORTE)
+                let imgB = imgsMiniBear[miniBear.frame];
+                if (imgB && imgB.complete) {
+                    ctx.save();
+
+                    // Lógica de Filtros e Transparência
+                    if (miniBear.timerMorte > 0) {
+                        // EFEITO DE MORTE: Pisca branco frenético
+                        if (Math.floor(miniBear.timerMorte / 4) % 2 === 0) {
+                            ctx.filter = "brightness(10) saturate(0)"; // Branco sólido
+                        } else {
+                            ctx.globalAlpha = 0.2; // Quase some
+                        }
+                    }
+                    else if (miniBear.cooldownDano > 0) {
+                        // EFEITO DE DANO: Flash e Pisca lento
+                        if (miniBear.cooldownDano > 30) {
+                            ctx.filter = "brightness(5)"; // Flash de impacto
+                        } else if (Math.floor(miniBear.cooldownDano / 8) % 2 === 0) {
+                            ctx.globalAlpha = 0.1; // Pisca
+                        }
+                    }
+
+                    ctx.translate(miniBear.x, miniBear.y);
+
+                    // Espelhamento e Desenho final
+                    if (miniBear.direcao === -1) {
+                        ctx.scale(-1, 1);
+                        ctx.drawImage(imgB, -miniBear.w, 0, miniBear.w, miniBear.h);
+                    } else {
+                        ctx.drawImage(imgB, 0, 0, miniBear.w, miniBear.h);
+                    }
+
+                    ctx.restore();
+                }
+            }
+
+            // Entidades Elétricas
+            entidadesPerigo.forEach(ent => {
+                let arrayUso = (ent.tipo === "eletricoDireito") ? imgsAsteDireita : (ent.tipo === "eletricoEsquerdo") ? imgsAsteEsquerda : imgsAste;
+                let img = arrayUso[ent.frame];
+                if (img && img.complete) ctx.drawImage(img, ent.x, ent.y, ent.w * 1.5, ent.h * 1.5);
+            });
+
+            ctx.restore(); // Fecha o translate(-scrollX) do mundo
+
+            // CAMADA 3: Robô e seus Rastros
+            ctx.save();
+            ctx.globalCompositeOperation = "screen";
+            robo.rastros.forEach((r, i) => { desenharRobo(r.x, r.y, r.frame, r.dir, r.estado, r.vY, (1 - i / robo.rastros.length) * 0.3); });
+            ctx.restore();
+
+            if ((Date.now() < tempoDano + duracaoInvulnerabilidade) ? Math.floor(Date.now() / 100) % 2 === 0 : true) {
+                desenharRobo(robo.currentX, robo.y, robo.frameAtual, robo.direcao, robo.estado, robo.velY, 1);
+            }
+
+            // CAMADA 4: Interface e Debug
+            desenharHUD();
+            if (ferramentaEdicaoAtiva) {
+                desenharEditorCoords();
+                ctx.fillStyle = "yellow";
+                ctx.font = "bold 14px monospace";
+                ctx.fillText(`PINCEL [1-5]: ${catalogoEdicao[pincelAtual].nome.toUpperCase()}`, 30, 200);
+            }
+            if (exibindoMenuTeleporte) desenharMenuDebug();
+            if (godMode) {
+                ctx.fillStyle = "cyan";
+                ctx.font = "bold 16px monospace";
+                ctx.fillText("GOD MODE: ACTIVE", 30, 100);
+            }
+
+            ctx.restore(); // Fecha o save inicial (Tremor)
+
+            // --- CAMADA FINAL: FADES DE CONCLUSÃO ---
+
+            // 1. Desenha a Imagem Preta (preto.png)
+            if (fadePretoAlpha > 0 && imgPreta.complete) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0); // Isola do scroll da câmera
+                ctx.globalAlpha = fadePretoAlpha;
+                ctx.drawImage(imgPreta, 0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            }
+
+            // 2. Desenha a Imagem Final (final2.png)
+            if (finalFadeAlpha > 0 && imgFinalCreditos.complete) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.globalAlpha = finalFadeAlpha;
+                ctx.drawImage(imgFinalCreditos, 0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            }
+
+            ctx.restore(); // Este é o restore que fecha o Tremor inicial
+        
+        }
+
+
+        function desenharRobo(x, y, frame, dir, estado, velY, alfa) {
+            let img = imgRoboStand;
+            if (estado === "pulando") img = (velY < 0) ? imgJump1 : imgJump2;
+            else if (estado === "correndo") img = imgsRun[frame];
+            if (img && img.complete) {
+                let lV = robo.altura * (img.naturalWidth / img.naturalHeight);
+                ctx.save(); ctx.globalAlpha = alfa; ctx.translate(x, y);
+                if (dir === -1) ctx.scale(-1, 1);
+                ctx.drawImage(img, -lV / 2, 0, lV, robo.altura);
+                ctx.restore();
+            }
+        }
+
+        function desenharHUD() {
+            ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+            if (imgLifeTxt.complete) ctx.drawImage(imgLifeTxt, 30, 25, 80, 30);
+            if (imgHeart.complete) for (let i = 0; i < 3; i++) { ctx.globalAlpha = (i < vida) ? 1.0 : 0.2; ctx.drawImage(imgHeart, 30 + (i * 45), 60, 40, 40); }
+            ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(30, 110, 180, 30);
+            ctx.fillStyle = "#00ff00"; ctx.font = "bold 18px monospace"; ctx.fillText(`POS X: ${Math.floor(robo.worldX)}px`, 40, 132);
+            ctx.restore();
+        }
+
+        function desenharEditorCoords() {
+            ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(10, 150, 220, 35);
+            ctx.fillStyle = "yellow"; ctx.font = "bold 16px monospace"; ctx.fillText(`MOUSE X:${mouseWorldX} Y:${mouseWorldY}`, 20, 173);
+            const cursorX = mouseWorldX - scrollX;
+            ctx.strokeStyle = "yellow"; ctx.beginPath(); ctx.moveTo(cursorX - 15, mouseWorldY); ctx.lineTo(cursorX + 15, mouseWorldY); ctx.moveTo(cursorX, mouseWorldY - 15); ctx.lineTo(cursorX, mouseWorldY + 15); ctx.stroke();
+            ctx.restore();
+        }
+
+        // --- FUNÇÃO DO MENU ATUALIZADA ---
+        function desenharMenuDebug() {
+            ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+            const menuW = 500;
+            const menuH = 300;
+            const x = canvas.width / 2 - menuW / 2;
+            const y = canvas.height / 2 - menuH / 2;
+
+            // Fundo e Borda
+            ctx.fillStyle = "rgba(0, 0, 0, 0.95)";
+            ctx.fillRect(x, y, menuW, menuH);
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, menuW, menuH);
+
+            // Cabeçalho
+            ctx.fillStyle = "white";
+            ctx.font = "bold 20px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(`LEVEL ${menuDebug.faseSelecionada} (A/D PARA MUDAR)`, x + menuW / 2, y + 35);
+            ctx.strokeStyle = "#444";
+            ctx.beginPath(); ctx.moveTo(x + 20, y + 55); ctx.lineTo(x + menuW - 20, y + 55); ctx.stroke();
+
+            // Área de Itens (com Clip para rolagem)
+            const areaX = x + 20;
+            const areaY = y + 70;
+            const areaW = menuW - 40;
+            const areaH = 210;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(areaX, areaY, areaW, areaH);
+            ctx.clip();
+
+            const setores = menuDebug.pontos[menuDebug.faseSelecionada];
+            setores.forEach((s, i) => {
+                const itemY = areaY + (i * alturaItem) - scrollMenu;
+
+                // Destaque de Seleção (W/S)
+                if (i === indiceSelecaoMenu) {
+                    ctx.fillStyle = "rgba(0, 255, 0, 0.2)";
+                    ctx.fillRect(areaX, itemY, areaW, alturaItem);
+                    ctx.strokeStyle = "#00ff00";
+                    ctx.strokeRect(areaX, itemY, areaW, alturaItem);
+                }
+
+                ctx.fillStyle = (i === indiceSelecaoMenu) ? "#00ff00" : "white";
+                ctx.font = "16px monospace";
+                ctx.textAlign = "left";
+                ctx.fillText(`> ${s.nome}`, areaX + 15, itemY + 25);
+            });
+            ctx.restore();
+
+            // Barra de rolagem minimalista
+            if (setores.length * alturaItem > areaH) {
+                const scrollH = (areaH / (setores.length * alturaItem)) * areaH;
+                const scrollY = areaY + (scrollMenu / (setores.length * alturaItem)) * areaH;
+                ctx.fillStyle = "#555";
+                ctx.fillRect(x + menuW - 10, areaY, 4, areaH);
+                ctx.fillStyle = "#00ff00";
+                ctx.fillRect(x + menuW - 10, scrollY, 4, scrollH);
+            }
+            
+        
+
+            ctx.restore();
+            
+        }
+
+        function exibirGameOver() { ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#ff3366"; ctx.font = "bold 60px monospace"; ctx.textAlign = "center"; ctx.fillText("MISSION FAILED", canvas.width / 2, canvas.height / 2); }
+
+        loop();
+    </script>
+</body>
+
+</html>
