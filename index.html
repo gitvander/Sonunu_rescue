@@ -156,7 +156,22 @@
 
         let mostrarControles = false; // Começa desligada, ligaremos ao entrar no jogo
             const imgControles = new Image();
-            imgControles.src = "levels/usogeral/controls.png";    
+            imgControles.src = "levels/usogeral/controls.png";  
+            
+            // --- CARREGAMENTO DE SONS ---
+                const sfxPulo = new Audio();
+                sfxPulo.src = "sounds/jump1.mp3";
+                sfxPulo.preload = "auto"; // Força o navegador a baixar o som antes de começar
+                sfxPulo.volume = 0.5;
+
+        // --- CONFIGURAÇÃO DA TRILHA SONORA ---
+             const bgmLevel1 = new Audio("sounds/musictrack1_level1.mp3");
+            bgmLevel1.loop = true; // Faz a música recomeçar automaticamente
+            bgmLevel1.volume = 0.4; // Ajusta o volume para 40% (para não abafar os efeitos)
+
+            // --- SONS DE EFEITO E INTERFACE ---
+                const sfxGameOver = new Audio("sounds/gameover_sound.mp3");
+                sfxGameOver.volume = 0.6; // Volume um pouco mais alto que a música de fundo
 
         //minibear ciborg 
         const pathBoss = "sprites_inimigos/bearcibv1/";
@@ -518,6 +533,7 @@
                 if (gameState === "menu") {
                     if (e.code === "Space") {
                         gameState = "jogando";
+                        bgmLevel1.play();
                         mostrarControles = true; // Ativa a imagem de controles agora
                     }
                     return;
@@ -579,8 +595,14 @@
                 ultimaTeclaSolta = "";
             }
             if (e.code === "Space" && (robo.estaNoChao || robo.tempoNoAr < 6)) {
+                // Reinicia e toca imediatamente
+                sfxPulo.pause();
+                sfxPulo.currentTime = 0;
+                sfxPulo.play().catch(err => console.log("Aguardando interação: ", err));
+
                 robo.velY = robo.forcaPuloBase * (robo.boostAtivo ? 1.2 : 1.0);
-                robo.estaNoChao = false; robo.tempoNoAr = 10;
+                robo.estaNoChao = false;
+                robo.tempoNoAr = 10;
             }
             // Seleção de Pincel (Teclas 1 a 5) no modo Edição
             if (ferramentaEdicaoAtiva && !isNaN(e.key) && e.key > 0 && e.key <= catalogoEdicao.length) {
@@ -616,15 +638,27 @@
         });
 
         function aplicarDano() {
-            if (godMode) return; // Se estiver no modo deus, a função para aqui e nada acontece
+                if (godMode) return;
 
-            const agora = Date.now();
-            if (agora > tempoDano + duracaoInvulnerabilidade) {
-                vida--;
-                tempoDano = agora;
-                if (vida <= 0) { vida = 0; gameOver = true; }
+                const agora = Date.now();
+                // Verifica se o robô não está no tempo de invulnerabilidade (piscando)
+                if (agora > tempoDano + duracaoInvulnerabilidade) {
+                    vida--; // Tira uma vida
+                    tempoDano = agora; // Começa o tempo de proteção
+
+                    // --- CONDIÇÃO DE MORTE REAL ---
+                    if (vida <= 0) {
+                        vida = 0;
+                        gameOver = true;
+
+                        // A música de fundo para e o som de Game Over toca APENAS AQUI
+                        bgmLevel1.pause();
+                        bgmLevel1.currentTime = 0;
+                        sfxGameOver.play();
+                    }
+                    // Se a vida for maior que 0, o código ignora a parte do áudio acima
+                }
             }
-        }
 
         class InimigoMinibear {
             constructor(x, y, limiteEsq, limiteDir, velMult = 0.25) {
@@ -1017,7 +1051,6 @@
         // Lista para os novos inimigos
         let inimigosComuns = [];
         // Exemplo: Colocando inimigos em diferentes setores
-        inimigosComuns.push(new InimigoMinibear(2000, 560, 1800, 2500)); // Setor 1
         inimigosComuns.push(new InimigoMinibear(7300, 460, 7000, 7600)); // Setor 2
 
         // Adicione os NFTWites em pontos estratégicos
@@ -1596,10 +1629,10 @@
             // CAMADA 4: Interface e Debug
             desenharHUD();
             if (ferramentaEdicaoAtiva) {
-                desenharEditorCoords();
-                ctx.fillStyle = "yellow";
-                ctx.font = "bold 14px monospace";
-                ctx.fillText(`PINCEL [1-5]: ${catalogoEdicao[pincelAtual].nome.toUpperCase()}`, 30, 200);
+               // desenharEditorCoords();// <--- ADICIONE AS BARRAS AQUI para esmagar as coordenadas do mouse
+               // ctx.fillStyle = "yellow";
+                //ctx.font = "bold 14px monospace";
+                //ctx.fillText(`PINCEL [1-5]: ${catalogoEdicao[pincelAtual].nome.toUpperCase()}`, 30, 200);
             }
             if (exibindoMenuTeleporte) desenharMenuDebug();
             if (godMode) {
@@ -1652,8 +1685,8 @@
             ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
             if (imgLifeTxt.complete) ctx.drawImage(imgLifeTxt, 30, 25, 80, 30);
             if (imgHeart.complete) for (let i = 0; i < 3; i++) { ctx.globalAlpha = (i < vida) ? 1.0 : 0.2; ctx.drawImage(imgHeart, 30 + (i * 45), 60, 40, 40); }
-            ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(30, 110, 180, 30);
-            ctx.fillStyle = "#00ff00"; ctx.font = "bold 18px monospace"; ctx.fillText(`POS X: ${Math.floor(robo.worldX)}px`, 40, 132);
+            //ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(30, 110, 180, 30);
+            //ctx.fillStyle = "#00ff00"; ctx.font = "bold 18px monospace"; ctx.fillText(`POS X: ${Math.floor(robo.worldX)}px`, 40, 132);
             ctx.restore();
         }
 
